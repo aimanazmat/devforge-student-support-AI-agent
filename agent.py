@@ -17,7 +17,6 @@ conversation has short-term memory across turns (bonus requirement).
 import os
 from typing import List, Literal, TypedDict
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
@@ -26,7 +25,10 @@ from langgraph.graph import END, StateGraph
 # ---------------------------------------------------------------------------
 # NOTE: variable names are fixed by the project spec.
 OLLAMA_API_KEY = os.environ.get("OLLAMAAPIKEY", "")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5")
+# NOTE: must be a model actually hosted on Ollama Cloud (check with
+# `curl -H "Authorization: Bearer $KEY" https://ollama.com/api/tags`).
+# gpt-oss:20b is small/fast and reliably available; override via env var.
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:20b")
 OLLAMA_CLOUD_HOST = os.environ.get("OLLAMA_HOST", "https://ollama.com")
 
 MISSING_KEY_MSG = (
@@ -164,27 +166,27 @@ def ai_support_agent(state: AgentState) -> AgentState:
     try:
         # Imported lazily so the app can still start (and /health can still
         # respond) even if this dependency has an issue.
-        from langchain_ollama import ChatOllama
+        # We use the official `ollama` client directly (rather than
+        # langchain_ollama's ChatOllama) because it reliably attaches the
+        # Authorization header to every request, including chat completions
+        # against Ollama Cloud.
+        import ollama
 
-        llm = ChatOllama(
-            model=OLLAMA_MODEL,
-            base_url=OLLAMA_CLOUD_HOST,
-            client_kwargs={
-                "headers": {"Authorization": f"Bearer {OLLAMA_API_KEY}"}
-            },
+        client = ollama.Client(
+            host=OLLAMA_CLOUD_HOST,
+            headers={"Authorization": f"Bearer {OLLAMA_API_KEY}"},
         )
 
         history = state.get("messages", [])
-        lc_messages = [SystemMessage(content=SYSTEM_PROMPT)]
+        chat_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         for msg in history[-10:]:  # keep last 10 turns of memory
-            if msg["role"] == "user":
-                lc_messages.append(HumanMessage(content=msg["content"]))
-            elif msg["role"] == "assistant":
-                lc_messages.append(AIMessage(content=msg["content"]))
-        lc_messages.append(HumanMessage(content=state["question"]))
+            chat_messages.append(
+                {"role": msg["role"], "content": msg["content"]}
+            )
+        chat_messages.append({"role": "user", "content": state["question"]})
 
-        result = llm.invoke(lc_messages)
-        state["answer"] = result.content.strip()
+        result = client.chat(model=OLLAMA_MODEL, messages=chat_messages)
+        state["answer"] = result["message"]["content"].strip()
     except Exception as exc:  # noqa: BLE001 - surface any provider error safely
         state["error"] = str(exc)
         state["answer"] = (
