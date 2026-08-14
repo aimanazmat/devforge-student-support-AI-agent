@@ -24,7 +24,7 @@ from langgraph.graph import END, StateGraph
 # Environment / configuration
 # ---------------------------------------------------------------------------
 # NOTE: variable names are fixed by the project spec.
-OLLAMA_API_KEY = os.environ.get("OLLAMAAPIKEY", "")
+OLLAMA_API_KEY = OLLAMA_API_KEY = os.environ.get("OLLAMAAPIKEY", "").strip()
 # NOTE: must be a model actually hosted on Ollama Cloud (check with
 # `curl -H "Authorization: Bearer $KEY" https://ollama.com/api/tags`).
 # gpt-oss:20b is small/fast and reliably available; override via env var.
